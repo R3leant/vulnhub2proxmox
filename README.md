@@ -21,8 +21,8 @@ El script instalará automáticamente las dependencias necesarias (`wget`, `p7zi
 1. Clona el repositorio o descarga el script:
 
   ```bash
-  git clone [https://github.com/tu-usuario/tu-repositorio.git](https://github.com/tu-usuario/tu-repositorio.git)
-  cd tu-repositorio
+  git clone https://github.com/R3leant/vulnhub2proxmox
+  cd vulnhub2proxmox
   ```
    
 2. Dale permisos de ejecucion:
