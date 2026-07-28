@@ -8,13 +8,9 @@ set -euo pipefail
 
 echo "[+] Instalando dependencias..."
 
-apt update
-
 apt install -y \
     p7zip-full \
     libguestfs-tools \
-    qemu-utils
-
 
 #############################################
 # Datos entrada
