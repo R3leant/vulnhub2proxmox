@@ -3,122 +3,179 @@
 set -euo pipefail
 
 #############################################
-# Instalar dependencias
+# Dependencias
 #############################################
 
 echo "[+] Instalando dependencias..."
 
+apt update
+
 apt install -y \
     p7zip-full \
-    libguestfs-tools
+    libguestfs-tools \
+    qemu-utils
+
 
 #############################################
-# Datos de entrada
+# Datos entrada
 #############################################
 
-read -rp "URL Mirror de la maquina (ej: https://download.vulnhub.com/symfonos/symfonos1.7z): " URL
+read -rp "URL Mirror de la maquina: " URL
 
-read -rp "Almacenamiento en Proxmox [ej: local-lvm, ssd-vms]: " STORAGE
+read -rp "Almacenamiento Proxmox [ej: local-lvm, ssd-vms]: " STORAGE
+
 if [ -z "$STORAGE" ]; then
-    echo "ERROR: El almacenamiento no puede estar vacío."
+    echo "ERROR: almacenamiento vacío"
     exit 1
 fi
 
-read -rp "Bridge de red [ej: vmbr0, vmbr1]: " BRIDGE
+
+read -rp "Bridge red [ej: vmbr0]: " BRIDGE
+
 if [ -z "$BRIDGE" ]; then
-    echo "ERROR: El bridge de red no puede estar vacío."
+    echo "ERROR: bridge vacío"
     exit 1
 fi
+
 
 VMID=$(pvesh get /cluster/nextid)
 
 ARCHIVE_FILE=$(basename "$URL")
+
 VMNAME="${ARCHIVE_FILE%%.*}"
 
+
 echo
-echo "========================================="
+echo "================================"
 echo " VMID          : $VMID"
 echo " Nombre        : $VMNAME"
-echo " Almacenamiento: $STORAGE"
+echo " Storage       : $STORAGE"
 echo " Bridge        : $BRIDGE"
-echo "========================================="
+echo "================================"
 echo
 
+
+
 #############################################
-# Descargar archivo
+# Descargar
 #############################################
 
-echo "[1/8] Descargando..."
+echo "[1/10] Descargando..."
 
 wget -O "$ARCHIVE_FILE" "$URL"
 
-#############################################
-# Extraer universalmente con 7z
-#############################################
 
-echo "[2/8] Extrayendo archivo universalmente..."
-
-7z x "$ARCHIVE_FILE" -y > /dev/null
 
 #############################################
-# Obtener VMDK o disco compatible
+# Extraer
 #############################################
 
-VMDK=$(find . -type f \( -name "*.vmdk" -o -name "*.qcow2" -o -name "*.raw" -o -name "*.img" \) | head -n1)
+echo "[2/10] Extrayendo..."
 
-if [ -z "$VMDK" ]; then
-    echo "ERROR: No se encontró ningún disco compatible (vmdk, qcow2, raw, img) dentro del archivo."
+7z x "$ARCHIVE_FILE" -y
+
+
+
+#############################################
+# Buscar disco
+#############################################
+
+echo "[3/10] Buscando disco..."
+
+DISK=$(find . \
+    -type f \
+    \( \
+    -iname "*.vmdk" \
+    -o -iname "*.qcow2" \
+    -o -iname "*.raw" \
+    -o -iname "*.img" \
+    \) \
+    | head -n1)
+
+
+if [ -z "$DISK" ]; then
+    echo "ERROR: No se encontró disco"
     exit 1
 fi
 
-VMDK="${VMDK#./}"
-echo "Disco encontrado: $VMDK"
 
-DISK_EXT="${VMDK##*.}"
-DISK_EXT_LOWER=$(echo "$DISK_EXT" | tr '[:upper:]' '[:lower:]')
+DISK=$(basename "$DISK")
+
+echo "Disco encontrado: $DISK"
+
+
 
 #############################################
-# Convertir a QCOW2 (si no lo es ya)
+# Convertir a QCOW2
 #############################################
 
-echo "[3/8] Preparando disco..."
+echo "[4/10] Preparando QCOW2..."
 
-if [ "$DISK_EXT_LOWER" = "qcow2" ]; then
-    cp "$VMDK" "${VMNAME}.qcow2"
+EXT="${DISK##*.}"
+
+EXT=$(echo "$EXT" | tr '[:upper:]' '[:lower:]')
+
+
+if [ "$EXT" = "qcow2" ]; then
+
+    cp "$DISK" "${VMNAME}.qcow2"
+
 else
-    qemu-img convert -p \
-        -f "$DISK_EXT_LOWER" \
+
+    qemu-img convert \
+        -p \
+        -f "$EXT" \
         -O qcow2 \
-        "$VMDK" \
+        "$DISK" \
         "${VMNAME}.qcow2"
+
 fi
 
+
+
 #############################################
-# Configurar GRUB
+# GRUB
 #############################################
 
-echo "[4/8] Configurando GRUB..."
+echo "[5/10] Configurando GRUB..."
 
 virt-customize \
     -a "${VMNAME}.qcow2" \
     --edit '/etc/default/grub:s/quiet/quiet net.ifnames=0 biosdevname=0/' \
-    --run-command 'update-grub' || true
+    --run-command "update-grub"
+
+
 
 #############################################
-# Configurar red
+# Red
 #############################################
 
-echo "[5/8] Configurando red (DHCP en eth0)..."
+echo "[6/10] Configurando eth0 DHCP..."
 
 virt-customize \
     -a "${VMNAME}.qcow2" \
-    --run-command "echo -e 'auto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp' > /etc/network/interfaces" || true
+    --run-command \
+"printf 'auto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n' > /etc/network/interfaces"
+
+
+
+#############################################
+# Verificación
+#############################################
+
+echo "[+] Verificando interfaces..."
+
+virt-cat \
+    -a "${VMNAME}.qcow2" \
+    /etc/network/interfaces
+
+
 
 #############################################
 # Crear VM
 #############################################
 
-echo "[6/8] Creando VM..."
+echo "[7/10] Creando VM..."
 
 qm create "$VMID" \
     --name "$VMNAME" \
@@ -128,57 +185,100 @@ qm create "$VMID" \
     --machine pc \
     --net0 e1000,bridge="$BRIDGE"
 
+
+
 #############################################
-# Importar disco y capturar referencia
+# Importar disco
 #############################################
 
-echo "[7/8] Importando disco..."
+echo "[8/10] Importando disco..."
 
-# Capturamos la línea exacta que devuelve qm importdisk (ej: "successfully imported disk 'ssd-vms:103/vm-103-disk-0.raw'")
-IMPORT_OUTPUT=$(qm importdisk "$VMID" "${VMNAME}.qcow2" "$STORAGE" | grep "successfully imported disk")
-DISK_REF=$(echo "$IMPORT_OUTPUT" | sed -n "s/.*'\(.*\)'.*/\1/p")
+qm importdisk \
+    "$VMID" \
+    "${VMNAME}.qcow2" \
+    "$STORAGE"
+
+
+
+#############################################
+# Obtener disco importado
+#############################################
+
+DISK_REF=$(qm config "$VMID" | awk '/unused/ {print $2}')
+
 
 if [ -z "$DISK_REF" ]; then
-    echo "ERROR: No se pudo obtener la referencia del disco importado."
+    echo "ERROR: No se encontró disco importado"
     exit 1
 fi
 
-echo "Referencia del disco: $DISK_REF"
+
+echo "Disco importado: $DISK_REF"
+
+
 
 #############################################
-# Asociar disco
+# SATA + BOOT
 #############################################
 
-echo "[8/8] Configurando VM..."
+echo "[9/10] Asociando SATA..."
 
 qm set "$VMID" \
     --sata0 "$DISK_REF" \
     --boot order=sata0
 
+
+
+#############################################
+# Forzar e1000
+#############################################
+
+qm set "$VMID" \
+    --net0 e1000,bridge="$BRIDGE"
+
+
+
 #############################################
 # Limpieza
 #############################################
 
-echo "[+] Limpiando..."
+echo "[10/10] Limpiando..."
 
 rm -f "$ARCHIVE_FILE"
 rm -f "${VMNAME}.qcow2"
 
-find . -type f \( -name "*.vmdk" -o -name "*.ovf" -o -name "*.mf" -o -name "*.cert" -o -name "*.qcow2" -o -name "*.img" -o -name "*.raw" \) -delete
+
+find . \
+    -type f \
+    \( \
+    -iname "*.vmdk" \
+    -o -iname "*.ovf" \
+    -o -iname "*.mf" \
+    -o -iname "*.cert" \
+    -o -iname "*.qcow2" \
+    -o -iname "*.raw" \
+    -o -iname "*.img" \
+    \) \
+    -delete
+
+
 find . -type d -empty -delete
+
+
 
 #############################################
 # Final
 #############################################
 
 echo
-echo "========================================="
-echo "Importación completada correctamente"
-echo "========================================="
+echo "================================"
+echo " IMPORTACION COMPLETADA"
+echo "================================"
 echo
-echo "VMID      : $VMID"
-echo "Nombre    : $VMNAME"
+echo "VMID : $VMID"
+echo "NAME : $VMNAME"
 echo
-echo "Para arrancarla:"
+echo "Arrancar:"
 echo
 echo "qm start $VMID"
+echo
