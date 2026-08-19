@@ -4,11 +4,15 @@ Script automatizado en Bash para Proxmox VE que permite descargar, descomprimir,
 
 ## Características
 
-* **Extracción Universal:** Detecta y extrae automáticamente cualquier formato de compresión mediante `7z`.
-* **Búsqueda Inteligente:** Localiza el disco virtual (`.vmdk`, `.qcow2`, `.raw`, `.img`) sin importar la estructura de directorios resultante.
-* **Conversión Automática:** Convierte cualquier formato de disco compatible a `QCOW2` de forma optimizada.
-* **Personalización de Red:** Reescribe el archivo `/etc/network/interfaces` configurando automáticamente la interfaz `eth0` por **DHCP**.
+* **Extracción Universal:** Detecta y extrae automáticamente cualquier formato de compresión mediante 7z.
+* **Búsqueda Inteligente y Recursiva:** Localiza el disco virtual (`.vmdk`, `.qcow2`, `.raw`, `.img`) de forma profunda sin importar los subdirectorios generados tras la extracción.
+* **Conversión Automática:** Convierte cualquier formato de disco compatible a QCOW2 de forma optimizada.
 * **Configuración de GRUB:** Ajusta las opciones del kernel para asegurar nombres de red tradicionales (`net.ifnames=0 biosdevname=0`).
+* **Gestión Multi-NIC y Red Inteligente:** 
+  * Permite configurar múltiples interfaces de red de forma interactiva (bucle dinámico para añadir tantas tarjetas como necesites).
+  * Identifica automáticamente si el sistema operativo utiliza **Netplan** (distribuciones modernas) o el archivo clásico `/etc/network/interfaces`.
+  * Permite seleccionar por cada interfaz si se desea configurar por **DHCP** o mediante **IP estática** con su respectiva puerta de enlace (Gateway).
+  * Ofrece una **vista previa** detallada de la configuración de red generada antes de inyectarla en la máquina.
 * **Soporte de Almacenamiento Dinámico:** Compatible tanto con almacenamientos tipo LVM/ZFS como con directorios estándar (capturando automáticamente la ruta generada por `qm importdisk`).
 * **Limpieza Automática:** Borra los archivos temporales y la basura descargada al finalizar el proceso.
 
